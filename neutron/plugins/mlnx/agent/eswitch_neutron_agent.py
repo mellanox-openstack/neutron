@@ -193,7 +193,8 @@ class MlnxEswitchRpcCallbacks(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
                     # update plugin about port status
                     self.agent.plugin_rpc.update_device_up(self.context,
                                                            port['mac_address'],
-                                                           self.agent.agent_id)
+                                                           self.agent.agent_id,
+                                                           cfg.CONF.host)
                 else:
                     self.eswitch.port_down(net_id,
                                            physical_network,
@@ -202,7 +203,8 @@ class MlnxEswitchRpcCallbacks(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
                     self.agent.plugin_rpc.update_device_down(
                         self.context,
                         port['mac_address'],
-                        self.agent.agent_id)
+                        self.agent.agent_id,
+                        cfg.CONF.host)
             except rpc_common.Timeout:
                 LOG.error(_("RPC timeout while updating port %s"), port['id'])
         else:
@@ -230,11 +232,12 @@ class MlnxEswitchNeutronAgent(sg_rpc.SecurityGroupAgentRpcMixin):
     def __init__(self, interface_mapping):
         self._polling_interval = cfg.CONF.AGENT.polling_interval
         self._setup_eswitches(interface_mapping)
+        configurations = {'interface_mappings': interface_mapping}
         self.agent_state = {
             'binary': 'neutron-mlnx-agent',
             'host': cfg.CONF.host,
             'topic': q_constants.L2_AGENT_TOPIC,
-            'configurations': interface_mapping,
+            'configurations': configurations,
             'agent_type': q_constants.AGENT_TYPE_MLNX,
             'start_flag': True}
         self._setup_rpc()
@@ -248,7 +251,7 @@ class MlnxEswitchNeutronAgent(sg_rpc.SecurityGroupAgentRpcMixin):
     def _report_state(self):
         try:
             devices = len(self.eswitch.get_vnics_mac())
-            self.agent_state['configurations']['devices'] = devices
+            self.agent_state.get('configurations')['devices'] = devices
             self.state_rpc.report_state(self.context,
                                         self.agent_state)
             self.agent_state.pop('start_flag', None)
@@ -339,11 +342,11 @@ class MlnxEswitchNeutronAgent(sg_rpc.SecurityGroupAgentRpcMixin):
                 LOG.info(_("Port %s updated"), device)
                 LOG.debug(_("Device details %s"), str(dev_details))
                 self.treat_vif_port(dev_details['port_id'],
-                                    dev_details['port_mac'],
+                                    dev_details['device'],
                                     dev_details['network_id'],
                                     dev_details['network_type'],
                                     dev_details['physical_network'],
-                                    dev_details['vlan_id'],
+                                    dev_details['segmentation_id'],
                                     dev_details['admin_state_up'])
             else:
                 LOG.debug(_("Device with mac_address %s not defined "
@@ -358,7 +361,8 @@ class MlnxEswitchNeutronAgent(sg_rpc.SecurityGroupAgentRpcMixin):
                 port_id = self.eswitch.get_port_id_by_mac(device)
                 dev_details = self.plugin_rpc.update_device_down(self.context,
                                                                  port_id,
-                                                                 self.agent_id)
+                                                                 self.agent_id,
+                                                                 cfg.CONF.host)
             except Exception as e:
                 LOG.debug(_("Removing port failed for device %(device)s "
                           "due to %(exc)s"), {'device': device, 'exc': e})
