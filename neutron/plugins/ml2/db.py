@@ -93,6 +93,14 @@ def get_port(session, port_id):
             return
 
 
+def get_port_from_device_mac(device_mac):
+    """Get port from database."""
+    LOG.debug(_("Get_port_from_device_mac() called"))
+    session = db_api.get_session()
+    qry = session.query(models_v2.Port).filter_by(mac_address=device_mac)
+    return qry.first()
+
+
 def get_port_and_sgs(port_id):
     """Get port from database with security group info."""
 

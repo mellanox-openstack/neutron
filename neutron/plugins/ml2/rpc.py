@@ -69,7 +69,10 @@ class RpcCallbacks(dhcp_rpc_base.DhcpRpcCallbackMixin,
         if device.startswith(TAP_DEVICE_PREFIX):
             return device[TAP_DEVICE_PREFIX_LENGTH:]
         else:
-            return device
+            port = db.get_port_from_device_mac(device)
+            if port:
+                return port.id
+        return device
 
     @classmethod
     def get_port_from_device(cls, device):
