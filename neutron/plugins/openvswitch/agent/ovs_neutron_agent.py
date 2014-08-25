@@ -47,6 +47,7 @@ from neutron.openstack.common import loopingcall
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.openvswitch.common import config  # noqa
 from neutron.plugins.openvswitch.common import constants
+from neutron.services.qos.agents import qos_rpc
 
 
 LOG = logging.getLogger(__name__)
@@ -83,7 +84,8 @@ class LocalVLANMapping:
 
 class OVSPluginApi(agent_rpc.PluginApi,
                    dvr_rpc.DVRServerRpcApiMixin,
-                   sg_rpc.SecurityGroupServerRpcApiMixin):
+                   sg_rpc.SecurityGroupServerRpcApiMixin,
+                   qos_rpc.QoSServerRpcApiMixin):
     pass
 
 
@@ -93,6 +95,13 @@ class OVSSecurityGroupAgent(sg_rpc.SecurityGroupAgentRpcMixin):
         self.plugin_rpc = plugin_rpc
         self.root_helper = root_helper
         self.init_firewall(defer_refresh_firewall=True)
+
+
+class OVSQoSAgent(qos_rpc.QoSAgentRpcMixin):
+    def __init__(self, context, plugin_rpc, root_helper, **kwargs):
+        self.context = context
+        self.plugin_rpc = plugin_rpc
+        self.root_helper = root_helper
 
 
 class OVSNeutronAgent(n_rpc.RpcCallback,
@@ -247,7 +256,29 @@ class OVSNeutronAgent(n_rpc.RpcCallback,
                                               root_helper)
         # Initialize iteration counter
         self.iter_num = 0
+        self.init_qos()
         self.run_daemon_loop = True
+
+    def init_qos(self):
+        # QoS agent support
+        self.qos_agent = OVSQoSAgent(self.context,
+                                     self.plugin_rpc,
+                                     self.root_helper)
+        if 'OpenflowQoSVlanDriver' in cfg.CONF.qos.qos_driver:
+            # TODO(scollins) - Make this configurable, if there is
+            # more than one physical bridge added to
+            # bridge_mappings
+            if self.phys_brs:
+                external_bridge = self.phys_brs[self.phys_brs.keys()[0]]
+                self.qos_agent.init_qos(ext_bridge=external_bridge,
+                                        int_bridge=self.int_br,
+                                        local_vlan_map=self.local_vlan_map
+                                        )
+            else:
+                LOG.exception(_("Unable to activate QoS API."
+                                "No bridge_mappings configured!"))
+        else:
+            self.qos_agent.init_qos()
 
     def _report_state(self):
         # How many devices are likely used by a VM
@@ -275,7 +306,8 @@ class OVSNeutronAgent(n_rpc.RpcCallback,
                      [topics.NETWORK, topics.DELETE],
                      [constants.TUNNEL, topics.UPDATE],
                      [topics.SECURITY_GROUP, topics.UPDATE],
-                     [topics.DVR, topics.UPDATE]]
+                     [topics.DVR, topics.UPDATE],
+                     [topics.QOS, topics.UPDATE]]
         if self.l2_pop:
             consumers.append([topics.L2POPULATION,
                               topics.UPDATE, cfg.CONF.host])
@@ -624,6 +656,14 @@ class OVSNeutronAgent(n_rpc.RpcCallback,
         if net_uuid not in self.local_vlan_map or ovs_restarted:
             self.provision_local_vlan(net_uuid, network_type,
                                       physical_network, segmentation_id)
+            # Check for a QoS policy for the network
+            qos_mapping = self.plugin_rpc.get_qos_by_network(self.context,
+                                                             net_uuid)
+            if qos_mapping:
+                self.qos_agent.network_qos_updated(self.context,
+                                                   qos_mapping,
+                                                   net_uuid)
+
         lvm = self.local_vlan_map[net_uuid]
         lvm.vif_ports[port.vif_id] = port
 

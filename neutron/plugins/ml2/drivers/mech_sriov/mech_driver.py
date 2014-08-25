@@ -133,6 +133,7 @@ class SriovNicSwitchMechanismDriver(api.MechanismDriver):
         :returns: True if segment can be bound for agent
         """
         network_type = segment[api.NETWORK_TYPE]
+        LOG.debug(_("WOW network_type=%s"), network_type)
         if network_type == p_const.TYPE_VLAN:
             if agent:
                 mappings = agent['configurations'].get('device_mappings', {})

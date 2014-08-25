@@ -41,12 +41,14 @@ from neutron.db import dvr_mac_db
 from neutron.db import external_net_db
 from neutron.db import extradhcpopt_db
 from neutron.db import models_v2
+from neutron.db import qos_rpc_base as qos_db_rpc
 from neutron.db import quota_db  # noqa
 from neutron.db import securitygroups_rpc_base as sg_db_rpc
 from neutron.extensions import allowedaddresspairs as addr_pair
 from neutron.extensions import extra_dhcp_opt as edo_ext
 from neutron.extensions import portbindings
 from neutron.extensions import providernet as provider
+from neutron.extensions import qos
 from neutron import manager
 from neutron.openstack.common import excutils
 from neutron.openstack.common import importutils
@@ -82,6 +84,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                 sg_db_rpc.SecurityGroupServerRpcMixin,
                 agentschedulers_db.DhcpAgentSchedulerDbMixin,
                 addr_pair_db.AllowedAddressPairsMixin,
+                qos_db_rpc.QoSServerRpcMixin,
                 extradhcpopt_db.ExtraDhcpOptMixin):
 
     """Implement the Neutron L2 abstractions using modules.
@@ -105,7 +108,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                                     "quotas", "security-group", "agent",
                                     "dhcp_agent_scheduler",
                                     "multi-provider", "allowed-address-pairs",
-                                    "extra_dhcp_opt"]
+                                    "extra_dhcp_opt", "quality-of-service"]
 
     @property
     def supported_extension_aliases(self):
@@ -214,6 +217,17 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
 
         self._update_port_dict_binding(port, binding)
         return changes
+
+    def _extend_network_dict_qos(self, context, network):
+        mapping = self.get_mapping_for_network(context, network['id'])
+        if mapping:
+            network[qos.QOS] = mapping[0].qos_id
+
+    def _extend_port_dict_qos(self, context, port):
+        mapping = self.get_mapping_for_port(context, port['id'])
+        if mapping:
+            port[qos.QOS] = mapping[0].qos_id
+
 
     def _bind_port_if_needed(self, context, allow_notify=False,
                              need_notify=False):
@@ -522,6 +536,9 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                                                           original_network)
             self._process_l3_update(context, updated_network,
                                     network['network'])
+            self._process_qos_network_update(context, updated_network,
+                                             network['network'])
+            self._extend_network_dict_qos(context, updated_network)
             self.type_manager._extend_network_dict_provider(context,
                                                             updated_network)
             mech_context = driver_context.NetworkContext(
@@ -541,6 +558,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         with session.begin(subtransactions=True):
             result = super(Ml2Plugin, self).get_network(context, id, None)
             self.type_manager._extend_network_dict_provider(context, result)
+            self._extend_network_dict_qos(context, result)
 
         return self._fields(result, fields)
 
@@ -553,7 +571,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                                             limit, marker, page_reverse)
             for net in nets:
                 self.type_manager._extend_network_dict_provider(context, net)
-
+                self._extend_network_dict_qos(context, net)
             nets = self._filter_nets_provider(context, nets, filters)
             nets = self._filter_nets_l3(context, nets, filters)
 
@@ -810,6 +828,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         return bound_context._port
 
     def update_port(self, context, id, port):
+        LOG.debug(_("WOW1 update_port in plugin"))
         attrs = port['port']
         need_port_update_notify = False
 
@@ -834,6 +853,8 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                     self.update_address_pairs_on_port(context, id, port,
                                                       original_port,
                                                       updated_port))
+            self._process_qos_port_update(context, updated_port, port['port'])
+            self._extend_port_dict_qos(context, updated_port)
             need_port_update_notify |= self.update_security_group_on_port(
                 context, id, port, original_port, updated_port)
             network = self.get_network(context, original_port['network_id'])
@@ -857,6 +878,10 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
 
         if original_port['admin_state_up'] != updated_port['admin_state_up']:
             need_port_update_notify = True
+
+        #######Samer Itzik
+        need_port_update_notify = True
+        ###################
 
         bound_port = self._bind_port_if_needed(
             mech_context,
@@ -1116,6 +1141,24 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             db.delete_dvr_port_binding_if_stale(session, binding)
 
         return port['id']
+
+    def get_port(self, context, id, fields=None):
+        session = context.session
+        with session.begin(subtransactions=True):
+            result = super(Ml2Plugin, self).get_port(context, id, None)
+            self._extend_port_dict_qos(context, result)
+        return self._fields(result, fields)
+
+    def get_ports(self, context, filters=None, fields=None,
+                  sorts=None, limit=None, marker=None, page_reverse=False):
+        session = context.session
+        with session.begin(subtransactions=True):
+            ports = super(Ml2Plugin,
+                          self).get_ports(context, filters, None, sorts,
+                                          limit, marker, page_reverse)
+            for port in ports:
+                self._extend_port_dict_qos(context, port)
+        return [self._fields(port, fields) for port in ports]
 
     def port_bound_to_host(self, context, port_id, host):
         port = db.get_port(context.session, port_id)

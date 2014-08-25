@@ -20,12 +20,16 @@ from neutron.common import exceptions
 from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.common import utils
+from neutron.db import dhcp_rpc_base
+from neutron.db import qos_rpc_base as qos_db_rpc
+from neutron.db import securitygroups_rpc_base as sg_db_rpc
 from neutron.extensions import portbindings
 from neutron import manager
 from neutron.openstack.common import log
 from neutron.plugins.common import constants as service_constants
 from neutron.plugins.ml2 import driver_api as api
 from neutron.plugins.ml2.drivers import type_tunnel
+from neutron.services.qos.agents import qos_rpc
 # REVISIT(kmestery): Allow the type and mechanism drivers to supply the
 # mixins and eventually remove the direct dependencies on type_tunnel.
 
@@ -34,6 +38,11 @@ LOG = log.getLogger(__name__)
 
 class RpcCallbacks(n_rpc.RpcCallback,
                    type_tunnel.TunnelRpcCallbackMixin):
+                   dhcp_rpc_base.DhcpRpcCallbackMixin,
+                   dvr_rpc.DVRServerRpcCallbackMixin,
+                   sg_db_rpc.SecurityGroupServerRpcCallbackMixin,
+                   type_tunnel.TunnelRpcCallbackMixin,
+                   qos_db_rpc.QoSServerRpcCallbackMixin):
 
     RPC_API_VERSION = '1.3'
     # history
@@ -171,17 +180,19 @@ class RpcCallbacks(n_rpc.RpcCallback,
 class AgentNotifierApi(n_rpc.RpcProxy,
                        dvr_rpc.DVRAgentRpcApiMixin,
                        sg_rpc.SecurityGroupAgentRpcApiMixin,
-                       type_tunnel.TunnelAgentRpcApiMixin):
+                       type_tunnel.TunnelAgentRpcApiMixin,
+                       qos_rpc.QoSAgentRpcApiMixin):
     """Agent side of the openvswitch rpc API.
 
     API version history:
         1.0 - Initial version.
         1.1 - Added get_active_networks_info, create_dhcp_port,
               update_dhcp_port, and removed get_dhcp_port methods.
+        1.2 - QoS API support
 
     """
 
-    BASE_RPC_API_VERSION = '1.1'
+    BASE_RPC_API_VERSION = '1.2'
 
     def __init__(self, topic):
         super(AgentNotifierApi, self).__init__(

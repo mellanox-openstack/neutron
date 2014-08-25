@@ -75,6 +75,9 @@ TYPE_LONG = "long"
 TYPE_FLOAT = "float"
 TYPE_LIST = "list"
 TYPE_DICT = "dict"
+TYPE_QOS_DSCP = "dscp"
+TYPE_QOS_RATELIMIT = "ratelimit"
+TYPE_QOS_VLAN_PRIORITY = "priority"
 
 AGENT_TYPE_DHCP = 'DHCP agent'
 AGENT_TYPE_OVS = 'Open vSwitch agent'
@@ -116,6 +119,7 @@ PROTO_NUM_UDP = 17
 # Multicast Listener Query (130),
 # Multicast Listener Report (131),
 # Multicast Listener Done (132),
+# Router Advertisement (134),
 # Neighbor Solicitation (135),
 # Neighbor Advertisement (136)
 ICMPV6_ALLOWED_TYPES = [130, 131, 132, 135, 136]
