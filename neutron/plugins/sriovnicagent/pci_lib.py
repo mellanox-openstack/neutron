@@ -146,3 +146,16 @@ class PciDeviceIPWrapper(ip_lib.IPWrapper):
                           "for %(device)s"), {'line': vf_line,
                                               'device': self.dev_name})
         return vf_details
+
+    def set_vlan_qos(self, vf_index, vlan_id, qos):
+        try:
+            LOG.debug(_("setting vlan: %s qos: %s on vf:%s"), qos,vlan_id,vf_index)
+            self._execute('', "link", ("set", self.dev_name, "vf",
+                                       str(vf_index), "vlan", str(vlan_id),
+                                       "qos", str(qos)),
+                          self.root_helper)
+        except Exception as e:
+            LOG.exception(_("Failed executing ip command"))
+            raise exc.IpCommandError(dev_name=self.dev_name,
+                                     reason=str(e))
+

@@ -804,6 +804,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                     attrs.get(addr_pair.ADDRESS_PAIRS)))
             self._process_port_create_extra_dhcp_opts(context, result,
                                                       dhcp_opts)
+            self._extend_port_dict_qos(context, port)
             self.mechanism_manager.create_port_precommit(mech_context)
 
         try:

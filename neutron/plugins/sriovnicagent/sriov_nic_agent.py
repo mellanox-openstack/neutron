@@ -36,24 +36,29 @@ from neutron.openstack.common import loopingcall
 from neutron.plugins.sriovnicagent.common import config  # noqa
 from neutron.plugins.sriovnicagent.common import exceptions as exc
 from neutron.plugins.sriovnicagent import eswitch_manager as esm
+from neutron.services.qos.agents import qos_rpc
 
 
 LOG = logging.getLogger(__name__)
 
 
 class SriovNicSwitchRpcCallbacks(n_rpc.RpcCallback,
-                                 sg_rpc.SecurityGroupAgentRpcCallbackMixin):
+                                 sg_rpc.SecurityGroupAgentRpcCallbackMixin,
+                                 qos_rpc.QoSAgentRpcCallbackMixin):
 
     # Set RPC API version to 1.0 by default.
     # history
     #   1.1 Support Security Group RPC
-    RPC_API_VERSION = '1.1'
+    #RPC_API_VERSION = '1.1'
+    #RPC_API_VERSION = '1.2'
+    RPC_API_VERSION = '1.3'
 
     def __init__(self, context, agent):
         super(SriovNicSwitchRpcCallbacks, self).__init__()
         self.context = context
         self.agent = agent
         self.sg_agent = agent
+        self.qos_agent = agent
 
     def port_update(self, context, **kwargs):
         LOG.debug("port_update received")
@@ -63,15 +68,33 @@ class SriovNicSwitchRpcCallbacks(n_rpc.RpcCallback,
         # notifications there is no guarantee the notifications are
         # processed in the same order as the relevant API requests.
         self.agent.updated_devices.add(port['mac_address'])
-        LOG.debug(_("port_update RPC received for port: %s"), port['id'])
+        qos_id = port.get('qos')
+        self.agent.qos_map[port['mac_address']] = qos_id
+        LOG.debug(_("port_update RPC received for port: %s, mac: %s, "
+                    "qos: %s"), port['id'], port['mac_address'])
 
+    def port_qos_deleted(self, context, **kwargs):
+        qos_id = kwargs.get('qos_id', '')
+        port_id = kwargs.get('port_id', '')
+        LOG.debug(_('QoS %(qos_id)s updated on remote: %(port_id)s')
+                  % kwargs)
+        self.qos_agent.port_qos_deleted(context, qos_id, port_id)
+
+    def port_qos_updated(self, context, **kwargs):
+        qos_id = kwargs.get('qos_id', '')
+        port_id = kwargs.get('port_id', '')
+        LOG.debug(_('QoS %(qos_id)s updated on remote: %(port_id)s')
+                  % kwargs)
+        self.qos_agent.port_qos_updated(context, qos_id, port_id)
 
 class SriovNicSwitchPluginApi(agent_rpc.PluginApi,
-                              sg_rpc.SecurityGroupServerRpcApiMixin):
+                              sg_rpc.SecurityGroupServerRpcApiMixin,
+                              qos_rpc.QoSServerRpcApiMixin):
     pass
 
 
-class SriovNicSwitchAgent(sg_rpc.SecurityGroupAgentRpcMixin):
+class SriovNicSwitchAgent(sg_rpc.SecurityGroupAgentRpcMixin,
+                          qos_rpc.QoSAgentRpcMixin):
     def __init__(self, physical_devices_mappings, exclude_devices,
                  polling_interval, root_helper):
 
@@ -92,8 +115,10 @@ class SriovNicSwitchAgent(sg_rpc.SecurityGroupAgentRpcMixin):
         self.updated_devices = set()
         self._setup_rpc()
         self.init_firewall()
+        self.init_qos()
         # Initialize iteration counter
         self.iter_num = 0
+        self.qos_map = {}
 
     def _setup_rpc(self):
         self.agent_id = 'nic-switch-agent.%s' % socket.gethostname()
@@ -172,7 +197,7 @@ class SriovNicSwitchAgent(sg_rpc.SecurityGroupAgentRpcMixin):
         # If one of the above operations fails => resync with plugin
         return (resync_a | resync_b)
 
-    def treat_device(self, device, pci_slot, admin_state_up):
+    def treat_device(self, device, pci_slot, admin_state_up, segmentation_id):
         if self.eswitch_mgr.device_exists(device, pci_slot):
             try:
                 self.eswitch_mgr.set_device_state(device, pci_slot,
@@ -191,6 +216,24 @@ class SriovNicSwitchAgent(sg_rpc.SecurityGroupAgentRpcMixin):
                                                    device,
                                                    self.agent_id,
                                                    cfg.CONF.host)
+            if device not in self.qos_map:
+                pass
+            qos_id = self.qos_map.get(device) 
+            if qos_id:
+                policy = self.plugin_rpc.get_policy_for_qos(self.context, 
+                                                            qos_id)
+                LOG.debug(_("QoS Policy: %s, VLAN: %s for device: %s"), 
+                          policy, 
+                          segmentation_id,
+                          device)
+                if 'priority' in policy:
+                    priority = policy.get('priority')
+                    self.eswitch_mgr.set_device_vlan_qos(device, 
+                                                         pci_slot, 
+                                                         segmentation_id, 
+                                                         priority)
+            else:
+                LOG.debug(_("No qos policy defined for device: %s."), device)
         else:
             LOG.info(_("No device with MAC %s defined on agent."), device)
 
@@ -215,7 +258,8 @@ class SriovNicSwitchAgent(sg_rpc.SecurityGroupAgentRpcMixin):
                 profile = device_details['profile']
                 self.treat_device(device_details['device'],
                                   profile.get('pci_slot'),
-                                  device_details['admin_state_up'])
+                                  device_details['admin_state_up'],
+                                  device_details['segmentation_id'])
             else:
                 LOG.info(_("Device with MAC %s not defined on plugin"), device)
         return False

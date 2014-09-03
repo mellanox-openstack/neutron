@@ -156,6 +156,19 @@ class EmbSwitch(object):
             raise exc.InvalidPciSlotError(pci_slot=pci_slot)
         return self.pci_dev_wrapper.set_vf_state(vf_index, state)
 
+    def set_device_vlan_qos(self, pci_slot, vlan_id, qos):
+        """Set device state.
+
+        @param pci_slot: Virtual Function address
+        @param state: link state
+        """
+        vf_index = self.pci_slot_map.get(pci_slot, None)
+        if vf_index is None:
+            LOG.warning(_("Cannot find vf index for pci slot %s"),
+                        pci_slot)
+            raise exc.InvalidPciSlotError(pci_slot=pci_slot)
+        return self.pci_dev_wrapper.set_vlan_qos(vf_index, vlan_id, qos)
+
     def get_pci_device(self, pci_slot):
         """Get mac address for given Virtual Function address
 
@@ -244,6 +257,18 @@ class ESwitchManager(object):
         if embedded_switch:
             embedded_switch.set_device_state(pci_slot,
                                              admin_state_up)
+
+    def set_device_vlan_qos(self, device_mac, pci_slot, vlan_id, qos):
+        """Set device state
+
+        Sets the device state (up or down)
+        @param device_mac: device mac
+        @param pci_slot: pci slot
+        @param admin_state_up: device admin state True/False
+        """
+        embedded_switch = self._get_emb_eswitch(device_mac, pci_slot)
+        if embedded_switch:
+            embedded_switch.set_device_vlan_qos(pci_slot, vlan_id, qos)
 
     def _discover_devices(self, device_mappings, exclude_devices):
         """Discover which Virtual functions to manage.
