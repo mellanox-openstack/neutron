@@ -106,6 +106,7 @@ class RpcCallbacks(n_rpc.RpcCallback,
                  'physical_network': segment[api.PHYSICAL_NETWORK],
                  'fixed_ips': port['fixed_ips'],
                  'device_owner': port['device_owner'],
+                 'qos': self.get_qos_by_port(rpc_context, port_id=port_id),
                  'profile': port[portbindings.PROFILE]}
         LOG.debug(_("Returning: %s"), entry)
         return entry

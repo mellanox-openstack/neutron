@@ -69,7 +69,6 @@ class SriovNicSwitchRpcCallbacks(n_rpc.RpcCallback,
         # processed in the same order as the relevant API requests.
         self.agent.updated_devices.add(port['mac_address'])
         qos_id = port.get('qos')
-        self.agent.qos_map[port['mac_address']] = qos_id
         LOG.debug(_("port_update RPC received for port: %s, mac: %s, "
                     "qos: %s"), port['id'], port['mac_address'])
 
@@ -118,7 +117,6 @@ class SriovNicSwitchAgent(sg_rpc.SecurityGroupAgentRpcMixin,
         self.init_qos()
         # Initialize iteration counter
         self.iter_num = 0
-        self.qos_map = {}
 
     def _setup_rpc(self):
         self.agent_id = 'nic-switch-agent.%s' % socket.gethostname()
@@ -197,7 +195,7 @@ class SriovNicSwitchAgent(sg_rpc.SecurityGroupAgentRpcMixin,
         # If one of the above operations fails => resync with plugin
         return (resync_a | resync_b)
 
-    def treat_device(self, device, pci_slot, admin_state_up, segmentation_id):
+    def treat_device(self, device, pci_slot, admin_state_up, segmentation_id, qos_id):
         if self.eswitch_mgr.device_exists(device, pci_slot):
             try:
                 self.eswitch_mgr.set_device_state(device, pci_slot,
@@ -216,9 +214,7 @@ class SriovNicSwitchAgent(sg_rpc.SecurityGroupAgentRpcMixin,
                                                    device,
                                                    self.agent_id,
                                                    cfg.CONF.host)
-            if device not in self.qos_map:
-                pass
-            qos_id = self.qos_map.get(device) 
+            priority = 0
             if qos_id:
                 policy = self.plugin_rpc.get_policy_for_qos(self.context, 
                                                             qos_id)
@@ -226,14 +222,17 @@ class SriovNicSwitchAgent(sg_rpc.SecurityGroupAgentRpcMixin,
                           policy, 
                           segmentation_id,
                           device)
+                priority = None
                 if 'priority' in policy:
                     priority = policy.get('priority')
-                    self.eswitch_mgr.set_device_vlan_qos(device, 
-                                                         pci_slot, 
-                                                         segmentation_id, 
-                                                         priority)
-            else:
-                LOG.debug(_("No qos policy defined for device: %s."), device)
+                elif 'rate' in policy:
+                    priority = policy.get('rate')
+                    if str(priority).lower() == "unlimited":
+                        priority = 0
+            self.eswitch_mgr.set_device_vlan_qos(device, 
+                                                 pci_slot, 
+                                                 segmentation_id, 
+                                                 priority)
         else:
             LOG.info(_("No device with MAC %s defined on agent."), device)
 
@@ -259,7 +258,8 @@ class SriovNicSwitchAgent(sg_rpc.SecurityGroupAgentRpcMixin,
                 self.treat_device(device_details['device'],
                                   profile.get('pci_slot'),
                                   device_details['admin_state_up'],
-                                  device_details['segmentation_id'])
+                                  device_details['segmentation_id'],
+                                  device_details['qos'])
             else:
                 LOG.info(_("Device with MAC %s not defined on plugin"), device)
         return False

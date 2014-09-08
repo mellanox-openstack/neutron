@@ -149,3 +149,13 @@ class QoSServerRpcCallbackMixin(object):
             return mapping.qos_id
         except exc.NoResultFound:
             return []
+
+    def get_qos_by_port(self, context, **kwargs):
+        port_id = kwargs.get('port_id')
+        query = context.session.query(qos_db.PortQoSMapping)
+        try:
+            mapping = query.filter_by(port_id=port_id).one()
+            return mapping.qos_id
+        except exc.NoResultFound:
+            return None
+
