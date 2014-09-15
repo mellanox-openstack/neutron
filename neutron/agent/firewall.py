@@ -131,6 +131,12 @@ class NoopFirewallDriver(FirewallDriver):
     def filter_defer_apply_off(self):
         pass
 
+    def update_security_group_rules(self, *args, **kw):
+        pass
+
+    def update_security_group_members(self, *args, **kw):
+        pass
+
     @property
     def ports(self):
         return {}

@@ -37,10 +37,6 @@ LOG = log.getLogger(__name__)
 
 
 class RpcCallbacks(n_rpc.RpcCallback,
-                   type_tunnel.TunnelRpcCallbackMixin):
-                   dhcp_rpc_base.DhcpRpcCallbackMixin,
-                   dvr_rpc.DVRServerRpcCallbackMixin,
-                   sg_db_rpc.SecurityGroupServerRpcCallbackMixin,
                    type_tunnel.TunnelRpcCallbackMixin,
                    qos_db_rpc.QoSServerRpcCallbackMixin):
 
