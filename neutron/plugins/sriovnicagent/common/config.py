@@ -52,6 +52,7 @@ def parse_exclude_devices(exclude_list):
 
 DEFAULT_DEVICE_MAPPINGS = []
 DEFAULT_EXCLUDE_DEVICES = []
+DEFAULT_RATELIMIT_MAPPING = []
 
 agent_opts = [
     cfg.IntOpt('polling_interval', default=2,
@@ -79,6 +80,10 @@ sriov_nic_opts = [
                        "(BDF format).to exclude from network_device. "
                        "The network_device in the mapping should appear in "
                        "the physical_device_mappings list.")),
+    cfg.ListOpt('ratelimit_up_mapping',
+                default=DEFAULT_RATELIMIT_MAPPING,
+                help=_("List of <ratelimit>:<up> mapping "
+                       "ratelimit to up")),
 ]
 
 

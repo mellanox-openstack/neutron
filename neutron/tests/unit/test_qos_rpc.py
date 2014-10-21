@@ -22,7 +22,7 @@ from neutron.agent.linux import ovs_lib
 from neutron.agent.linux import utils
 from neutron.agent import rpc as agent_rpc
 from neutron.db import qos_rpc_base as qos_db_rpc
-from neutron.openstack.common.rpc import proxy
+from neutron.common import rpc as n_rpc
 from neutron.services.qos.agents import qos_rpc as qos_agent_rpc
 from neutron.tests import base
 from neutron.tests.unit import test_extension_qos as test_qos
@@ -109,7 +109,7 @@ class QoSAgentRpcTestCase(base.BaseTestCase):
             [mock.call('fake-port')])
 
 
-class FakeQoSNotifierApi(proxy.RpcProxy,
+class FakeQoSNotifierApi(n_rpc.RpcProxy,
                          qos_agent_rpc.QoSAgentRpcApiMixin):
     pass
 

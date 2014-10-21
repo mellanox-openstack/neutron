@@ -20,7 +20,6 @@ from neutron.common import exceptions
 from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.common import utils
-from neutron.db import dhcp_rpc_base
 from neutron.db import qos_rpc_base as qos_db_rpc
 from neutron.db import securitygroups_rpc_base as sg_db_rpc
 from neutron.extensions import portbindings

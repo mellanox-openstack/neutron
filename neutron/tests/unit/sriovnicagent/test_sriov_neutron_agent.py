@@ -47,10 +47,10 @@ class TestSriovAgent(base.BaseTestCase):
                    'FixedIntervalLoopingCall',
                    new=MockFixedIntervalLoopingCall)
 
-        self.agent = sriov_nic_agent.SriovNicSwitchAgent({}, {}, 0, None)
+        self.agent = sriov_nic_agent.SriovNicSwitchAgent({}, {}, {}, 0, None)
 
     def test_treat_devices_removed_with_existed_device(self):
-        agent = sriov_nic_agent.SriovNicSwitchAgent({}, {}, 0, None)
+        agent = sriov_nic_agent.SriovNicSwitchAgent({}, {}, {}, 0, None)
         devices = [DEVICE_MAC]
         with mock.patch.object(agent.plugin_rpc,
                                "update_device_down") as fn_udd:
@@ -64,7 +64,7 @@ class TestSriovAgent(base.BaseTestCase):
                 self.assertTrue(fn_udd.called)
 
     def test_treat_devices_removed_with_not_existed_device(self):
-        agent = sriov_nic_agent.SriovNicSwitchAgent({}, {}, 0, None)
+        agent = sriov_nic_agent.SriovNicSwitchAgent({}, {}, {}, 0, None)
         devices = [DEVICE_MAC]
         with mock.patch.object(agent.plugin_rpc,
                                "update_device_down") as fn_udd:
@@ -78,7 +78,7 @@ class TestSriovAgent(base.BaseTestCase):
                 self.assertTrue(fn_udd.called)
 
     def test_treat_devices_removed_failed(self):
-        agent = sriov_nic_agent.SriovNicSwitchAgent({}, {}, 0, None)
+        agent = sriov_nic_agent.SriovNicSwitchAgent({}, {}, {}, 0, None)
         devices = [DEVICE_MAC]
         with mock.patch.object(agent.plugin_rpc,
                                "update_device_down") as fn_udd:
@@ -177,7 +177,8 @@ class TestSriovAgent(base.BaseTestCase):
                         'network_type': 'vlan',
                         'segmentation_id': 100,
                         'profile': {'pci_slot': '1:2:3.0'},
-                        'physical_network': 'physnet1'}
+                        'physical_network': 'physnet1',
+                        'qos': None}
         agent.plugin_rpc = mock.Mock()
         agent.plugin_rpc.get_devices_details_list.return_value = [mock_details]
         agent.eswitch_mgr = mock.Mock()
@@ -204,7 +205,8 @@ class TestSriovAgent(base.BaseTestCase):
                         'network_type': 'vlan',
                         'segmentation_id': 100,
                         'profile': {'pci_slot': '1:2:3.0'},
-                        'physical_network': 'physnet1'}
+                        'physical_network': 'physnet1',
+                        'qos': None}
         agent.plugin_rpc = mock.Mock()
         agent.plugin_rpc.get_devices_details_list.return_value = [mock_details]
         agent.remove_port_binding = mock.Mock()

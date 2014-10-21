@@ -70,7 +70,7 @@ class SriovNicSwitchRpcCallbacks(n_rpc.RpcCallback,
         self.agent.updated_devices.add(port['mac_address'])
         qos_id = port.get('qos')
         LOG.debug(_("port_update RPC received for port: %s, mac: %s, "
-                    "qos: %s"), port['id'], port['mac_address'])
+                    "qos: %s"), port['id'], port['mac_address'], qos_id)
 
     def port_qos_deleted(self, context, **kwargs):
         qos_id = kwargs.get('qos_id', '')
@@ -86,6 +86,7 @@ class SriovNicSwitchRpcCallbacks(n_rpc.RpcCallback,
                   % kwargs)
         self.qos_agent.port_qos_updated(context, qos_id, port_id)
 
+
 class SriovNicSwitchPluginApi(agent_rpc.PluginApi,
                               sg_rpc.SecurityGroupServerRpcApiMixin,
                               qos_rpc.QoSServerRpcApiMixin):
@@ -95,10 +96,11 @@ class SriovNicSwitchPluginApi(agent_rpc.PluginApi,
 class SriovNicSwitchAgent(sg_rpc.SecurityGroupAgentRpcMixin,
                           qos_rpc.QoSAgentRpcMixin):
     def __init__(self, physical_devices_mappings, exclude_devices,
-                 polling_interval, root_helper):
+                 ratelimit_up_mapping, polling_interval, root_helper):
 
         self.polling_interval = polling_interval
         self.root_helper = root_helper
+        self.ratelimit_up_mapping = ratelimit_up_mapping
         self.setup_eswitch_mgr(physical_devices_mappings,
                                exclude_devices)
         configurations = {'device_mappings': physical_devices_mappings}
@@ -195,7 +197,8 @@ class SriovNicSwitchAgent(sg_rpc.SecurityGroupAgentRpcMixin,
         # If one of the above operations fails => resync with plugin
         return (resync_a | resync_b)
 
-    def treat_device(self, device, pci_slot, admin_state_up, segmentation_id, qos_id):
+    def treat_device(self, device, pci_slot, admin_state_up, segmentation_id,
+                     qos_id):
         if self.eswitch_mgr.device_exists(device, pci_slot):
             try:
                 self.eswitch_mgr.set_device_state(device, pci_slot,
@@ -216,22 +219,27 @@ class SriovNicSwitchAgent(sg_rpc.SecurityGroupAgentRpcMixin,
                                                    cfg.CONF.host)
             priority = 0
             if qos_id:
-                policy = self.plugin_rpc.get_policy_for_qos(self.context, 
+                policy = self.plugin_rpc.get_policy_for_qos(self.context,
                                                             qos_id)
-                LOG.debug(_("QoS Policy: %s, VLAN: %s for device: %s"), 
-                          policy, 
+                LOG.debug(_("QoS Policy: %s, VLAN: %s for device: %s"),
+                          policy,
                           segmentation_id,
                           device)
-                priority = None
                 if 'priority' in policy:
                     priority = policy.get('priority')
                 elif 'rate' in policy:
-                    priority = policy.get('rate')
-                    if str(priority).lower() == "unlimited":
+                    ratelimit = policy.get('rate')
+                    if str(ratelimit).lower() == "unlimited":
                         priority = 0
-            self.eswitch_mgr.set_device_vlan_qos(device, 
-                                                 pci_slot, 
-                                                 segmentation_id, 
+                    else:
+                        priority = self.ratelimit_up_mapping.get(ratelimit)
+                        if priority is None:
+                            priority = 0
+                            LOG.warning(_("Ratelimit %s is not configured!") %
+                                        ratelimit)
+            self.eswitch_mgr.set_device_vlan_qos(device,
+                                                 pci_slot,
+                                                 segmentation_id,
                                                  priority)
         else:
             LOG.info(_("No device with MAC %s defined on agent."), device)
@@ -337,6 +345,7 @@ class SriovNicAgentConfigParser(object):
     def __init__(self):
         self.device_mappings = {}
         self.exclude_devices = {}
+        self.ratelimit_up_mapping = {}
 
     def parse(self):
         """Parses device_mappings and exclude_devices.
@@ -347,6 +356,8 @@ class SriovNicAgentConfigParser(object):
             cfg.CONF.SRIOV_NIC.physical_device_mappings)
         self.exclude_devices = config.parse_exclude_devices(
             cfg.CONF.SRIOV_NIC.exclude_devices)
+        self.ratelimit_up_mapping = q_utils.parse_mappings(
+            cfg.CONF.SRIOV_NIC.ratelimit_up_mapping)
         self._validate()
 
     def _validate(self):
@@ -361,6 +372,18 @@ class SriovNicAgentConfigParser(object):
                 raise ValueError(_("Device name %(dev_name)s is missing from "
                                    "physical_device_mappings") % {'dev_name':
                                                                   dev_name})
+        up_set = set()
+        for up in self.ratelimit_up_mapping.itervalues():
+            try:
+                up_index = int(up)
+            except Exception:
+                raise ValueError(_("Invalid UP %s: must be 0-7") % up)
+            if up_index > 7 or up_index < 0:
+                raise ValueError(_("Invalid UP %s: must be 0-7") % up)
+            if up_index in up_set:
+                raise ValueError(_("UP %s: is defined for more than one "
+                                   "ratelimit") % up)
+            up_set.add(up_index)
 
 
 def main():
@@ -372,6 +395,7 @@ def main():
         config_parser.parse()
         device_mappings = config_parser.device_mappings
         exclude_devices = config_parser.exclude_devices
+        ratelimit_up_mapping = config_parser.ratelimit_up_mapping
 
     except ValueError as e:
         LOG.error(_("Failed on Agent configuration parse : %s."
@@ -379,12 +403,14 @@ def main():
         raise SystemExit(1)
     LOG.info(_("Physical Devices mappings: %s"), device_mappings)
     LOG.info(_("Exclude Devices: %s"), exclude_devices)
+    LOG.info(_("Ratelimit to UP Mapping: %s"), ratelimit_up_mapping)
 
     polling_interval = cfg.CONF.AGENT.polling_interval
     root_helper = cfg.CONF.AGENT.root_helper
     try:
         agent = SriovNicSwitchAgent(device_mappings,
                                     exclude_devices,
+                                    ratelimit_up_mapping,
                                     polling_interval,
                                     root_helper)
     except exc.SriovNicError:
